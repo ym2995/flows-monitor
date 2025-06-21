@@ -811,14 +811,14 @@
             }
         }
 
-        // Fetch flows from data directory - FIXED FUNCTION
+        // Fetch flows from data directory - REAL FILE LOADING
         async function fetchFlowsForDate(date) {
             try {
                 // Try to load from structured directory first
                 const response = await fetch(`./data/flows/${date}/flows.json`);
                 if (response.ok) {
                     const data = await response.json();
-                    return data;
+                    return parseFlowsData(data);
                 }
                 
                 // Fallback: try individual RF_*.json files
@@ -827,7 +827,9 @@
                     'RF_Finance_Test.json', 
                     'RF_Materials_Test.json',
                     'RF_Sales_Test.json',
-                    'RF_Inventory_Test.json'
+                    'RF_Inventory_Test.json',
+                    'RF_Purchasing_Test.json',
+                    'RF_HR_Test.json'
                 ];
                 
                 const flows = [];
@@ -836,7 +838,10 @@
                         const fileResponse = await fetch(`./data/flows/${date}/${fileName}`);
                         if (fileResponse.ok) {
                             const flowData = await fileResponse.json();
-                            flows.push(flowData);
+                            const parsedFlow = parseIndividualFlowFile(flowData, fileName);
+                            if (parsedFlow) {
+                                flows.push(parsedFlow);
+                            }
                         }
                     } catch (fileError) {
                         console.warn(`Could not load ${fileName}:`, fileError);
@@ -844,6 +849,7 @@
                 }
                 
                 if (flows.length > 0) {
+                    console.log(`Loaded ${flows.length} real flow files for ${date}`);
                     return flows;
                 }
                 
@@ -851,9 +857,174 @@
                 
             } catch (error) {
                 console.error('Error fetching flows:', error);
-                // Fallback to sample data for demo
+                console.warn('No real files found, using sample data for demo');
                 return getSampleFlowData();
             }
+        }
+
+        // Parse consolidated flows data
+        function parseFlowsData(data) {
+            if (Array.isArray(data)) {
+                return data.map(flow => parseIndividualFlow(flow));
+            } else if (data.flows) {
+                return data.flows.map(flow => parseIndividualFlow(flow));
+            } else {
+                return [parseIndividualFlow(data)];
+            }
+        }
+
+        // Parse individual flow file based on the real JSON structure
+        function parseIndividualFlowFile(flowData, fileName) {
+            try {
+                // Extract flow name from filename
+                const flowName = fileName.replace('.json', '');
+                
+                // Handle the real JSON structure from SAP Datasphere
+                const dwcDetails = flowData.dwcDetails;
+                const diDetails = flowData.diDetails;
+                
+                if (!dwcDetails || !diDetails) {
+                    console.warn(`Invalid structure in ${fileName}`);
+                    return null;
+                }
+                
+                const replicationFlow = dwcDetails.JSON?.contents;
+                if (!replicationFlow) {
+                    console.warn(`No replication flow contents in ${fileName}`);
+                    return null;
+                }
+                
+                const sourceConnection = replicationFlow.sourceSystem?.connectionName || 'Unknown Source';
+                const targetConnection = replicationFlow.targetSystem?.connectionName || 'Unknown Target';
+                const replicationTasks = replicationFlow.replicationTasks || [];
+                
+                // Parse objects from replication tasks
+                const objects = [];
+                replicationTasks.forEach(task => {
+                    const objectName = task.sourceObject?.name;
+                    if (!objectName) return;
+                    
+                    // Find corresponding DI task
+                    const diTask = diDetails.replicationTasks?.find(dt => 
+                        dt.status?.details?.sourceObjectName === objectName
+                    );
+                    
+                    const parsedObject = parseObjectFromTask(task, diTask, appState.selectedDate);
+                    if (parsedObject) {
+                        objects.push(parsedObject);
+                    }
+                });
+                
+                // Determine overall flow status
+                const flowStatus = determineFlowStatus(objects);
+                
+                return {
+                    id: flowName,
+                    name: flowName,
+                    sourceConnection: sourceConnection,
+                    targetConnection: targetConnection,
+                    status: flowStatus,
+                    objects: objects,
+                    lastUpdated: new Date(dwcDetails.downloadTimeUtc || Date.now()),
+                    deployedAt: new Date(dwcDetails.DEPLOYED_AT || Date.now())
+                };
+                
+            } catch (error) {
+                console.error(`Error parsing ${fileName}:`, error);
+                return null;
+            }
+        }
+
+        // Parse object from replication task and DI details
+        function parseObjectFromTask(task, diTask, selectedDate) {
+            const objectName = task.sourceObject.name;
+            const loadType = task.loadType || 'REPLICATE';
+            const priority = task.priority || 50;
+            
+            let status = 'inactive';
+            let recordsToday = 0;
+            let recordsTotal = 0;
+            let lastUpdated = null;
+            let nextCheck = '';
+            let statusMessage = '';
+            
+            if (diTask && diTask.status && diTask.status.details) {
+                const details = diTask.status.details;
+                
+                // Parse partition information
+                if (details.partitions) {
+                    Object.values(details.partitions).forEach(partition => {
+                        if (partition.partitionMetrics) {
+                            const metrics = partition.partitionMetrics;
+                            
+                            // Add to total records
+                            if (metrics.targetRecordCount) {
+                                recordsTotal += metrics.targetRecordCount;
+                            }
+                            
+                            // Check if data was transferred on selected date
+                            if (metrics.lastDataTransferredAt) {
+                                const transferDate = new Date(metrics.lastDataTransferredAt);
+                                lastUpdated = transferDate;
+                                
+                                if (transferDate.toISOString().split('T')[0] === selectedDate) {
+                                    recordsToday += metrics.targetRecordCount || 0;
+                                    status = 'completed';
+                                }
+                            }
+                        }
+                        
+                        // Get status information
+                        if (partition.statusInfo) {
+                            statusMessage = partition.statusInfo;
+                            
+                            if (partition.statusInfo.includes('No new delta data available')) {
+                                if (status === 'inactive') status = 'ready';
+                                
+                                // Extract next check time
+                                const nextCheckMatch = partition.statusInfo.match(/after (.+?)\./);
+                                if (nextCheckMatch) {
+                                    nextCheck = nextCheckMatch[1];
+                                }
+                            } else if (partition.statusInfo.includes('Transferring') || 
+                                      partition.statusInfo.includes('Processing')) {
+                                status = 'processing';
+                            }
+                        }
+                        
+                        // Check for errors or retries
+                        if (partition.retryInfo && partition.retryInfo.retryCount > 0) {
+                            status = 'failed';
+                        }
+                    });
+                }
+            }
+            
+            return {
+                name: objectName,
+                status: status,
+                recordsToday: recordsToday,
+                recordsTotal: recordsTotal,
+                lastUpdated: lastUpdated,
+                nextCheck: nextCheck,
+                statusMessage: statusMessage,
+                loadType: loadType,
+                priority: priority
+            };
+        }
+
+        // Determine overall flow status from objects
+        function determineFlowStatus(objects) {
+            if (objects.length === 0) return 'inactive';
+            
+            const statuses = objects.map(obj => obj.status);
+            
+            if (statuses.every(s => s === 'completed')) return 'completed';
+            if (statuses.some(s => s === 'failed')) return 'failed';
+            if (statuses.some(s => s === 'processing')) return 'partial';
+            if (statuses.some(s => s === 'ready')) return 'partial';
+            
+            return 'inactive';
         }
 
         // Sample data for demo - using only real connection name
