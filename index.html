@@ -814,14 +814,10 @@
         // Fetch flows from data directory - REAL FILE LOADING
         async function fetchFlowsForDate(date) {
             try {
-                // Try to load from structured directory first
-                const response = await fetch(`./data/flows/${date}/flows.json`);
-                if (response.ok) {
-                    const data = await response.json();
-                    return parseFlowsData(data);
-                }
+                console.log(`Loading flows for date: ${date}`);
+                console.log(`Looking in directory: ./data/flows/${date}/`);
                 
-                // Fallback: try individual RF_*.json files
+                // Try to load from structured directory: data/flows/YYYY-MM-DD/RF_FlowName.json
                 const flowFiles = [
                     'RF_S4GSS_Test.json',
                     'RF_Finance_Test.json', 
@@ -833,31 +829,41 @@
                 ];
                 
                 const flows = [];
+                let filesFound = 0;
+                
                 for (const fileName of flowFiles) {
                     try {
-                        const fileResponse = await fetch(`./data/flows/${date}/${fileName}`);
+                        const filePath = `./data/flows/${date}/${fileName}`;
+                        console.log(`Attempting to load: ${filePath}`);
+                        
+                        const fileResponse = await fetch(filePath);
                         if (fileResponse.ok) {
+                            console.log(`✅ Successfully loaded: ${fileName}`);
                             const flowData = await fileResponse.json();
                             const parsedFlow = parseIndividualFlowFile(flowData, fileName);
                             if (parsedFlow) {
                                 flows.push(parsedFlow);
+                                filesFound++;
                             }
+                        } else {
+                            console.log(`❌ File not found: ${fileName} (${fileResponse.status})`);
                         }
                     } catch (fileError) {
-                        console.warn(`Could not load ${fileName}:`, fileError);
+                        console.log(`❌ Error loading ${fileName}:`, fileError.message);
                     }
                 }
                 
                 if (flows.length > 0) {
-                    console.log(`Loaded ${flows.length} real flow files for ${date}`);
+                    console.log(`🎉 Successfully loaded ${filesFound} real flow files for ${date}`);
                     return flows;
                 }
                 
-                throw new Error(`No flow data found for date ${date}`);
+                console.warn(`⚠️ No flow files found in ./data/flows/${date}/`);
+                throw new Error(`No flow data found for date ${date} in expected directory structure`);
                 
             } catch (error) {
                 console.error('Error fetching flows:', error);
-                console.warn('No real files found, using sample data for demo');
+                console.warn('📂 No real files found, using sample data for demo');
                 return getSampleFlowData();
             }
         }
