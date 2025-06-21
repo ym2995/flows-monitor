@@ -811,13 +811,13 @@
             }
         }
 
-        // Fetch flows from data directory - REAL FILE LOADING
+        // Fetch flows from data directory - REAL FILES ONLY
         async function fetchFlowsForDate(date) {
             try {
                 console.log(`Loading flows for date: ${date}`);
                 console.log(`Looking in directory: ./data/flows/${date}/`);
                 
-                // Try to load from structured directory: data/flows/YYYY-MM-DD/RF_FlowName.json
+                // Load from structured directory: data/flows/YYYY-MM-DD/RF_FlowName.json
                 const flowFiles = [
                     'RF_S4GSS_Test.json',
                     'RF_Finance_Test.json', 
@@ -859,12 +859,11 @@
                 }
                 
                 console.warn(`⚠️ No flow files found in ./data/flows/${date}/`);
-                throw new Error(`No flow data found for date ${date} in expected directory structure`);
+                return []; // Return empty array instead of demo data
                 
             } catch (error) {
                 console.error('Error fetching flows:', error);
-                console.warn('📂 No real files found, using sample data for demo');
-                return getSampleFlowData();
+                return []; // Return empty array on error
             }
         }
 
@@ -947,7 +946,7 @@
             const loadType = task.loadType || 'REPLICATE';
             const priority = task.priority || 50;
             
-            let status = 'inactive';
+            let status = 'ready'; // Default to ready instead of inactive
             let recordsToday = 0;
             let recordsTotal = 0;
             let lastUpdated = null;
@@ -975,17 +974,16 @@
                                 
                                 if (transferDate.toISOString().split('T')[0] === selectedDate) {
                                     recordsToday += metrics.targetRecordCount || 0;
-                                    status = 'completed';
                                 }
                             }
                         }
                         
-                        // Get status information
+                        // Get status information from partition
                         if (partition.statusInfo) {
                             statusMessage = partition.statusInfo;
                             
                             if (partition.statusInfo.includes('No new delta data available')) {
-                                if (status === 'inactive') status = 'ready';
+                                status = 'completed'; // Delta ready means completed
                                 
                                 // Extract next check time
                                 const nextCheckMatch = partition.statusInfo.match(/after (.+?)\./);
@@ -995,16 +993,32 @@
                             } else if (partition.statusInfo.includes('Transferring') || 
                                       partition.statusInfo.includes('Processing')) {
                                 status = 'processing';
+                            } else if (partition.statusInfo.includes('Complete')) {
+                                status = 'completed';
                             }
                         }
                         
-                        // Check for errors or retries
-                        if (partition.retryInfo && partition.retryInfo.retryCount > 0) {
+                        // Check partition status directly
+                        if (partition.status) {
+                            if (partition.status === 'Complete') {
+                                status = 'completed';
+                            } else if (partition.status === 'Transferring') {
+                                status = 'processing';
+                            } else if (partition.status === 'Failed' || partition.status === 'Error') {
+                                status = 'failed';
+                            }
+                        }
+                        
+                        // Only mark as failed if there are actual errors, not just no recent data
+                        if (partition.retryInfo && partition.retryInfo.retryCount > 0 && 
+                            partition.retryInfo.lastError) {
                             status = 'failed';
                         }
                     });
                 }
             }
+            
+            console.log(`Object ${objectName}: status=${status}, recordsToday=${recordsToday}, recordsTotal=${recordsTotal}`);
             
             return {
                 name: objectName,
@@ -1019,129 +1033,34 @@
             };
         }
 
-        // Determine overall flow status from objects
+        // Determine overall flow status from objects - FIXED LOGIC
         function determineFlowStatus(objects) {
             if (objects.length === 0) return 'inactive';
             
             const statuses = objects.map(obj => obj.status);
+            console.log(`Flow statuses: ${statuses.join(', ')}`);
             
-            if (statuses.every(s => s === 'completed')) return 'completed';
-            if (statuses.some(s => s === 'failed')) return 'failed';
+            // If any object has failed with actual errors, mark flow as failed
+            const hasRealFailures = objects.some(obj => 
+                obj.status === 'failed' && 
+                obj.statusMessage && 
+                !obj.statusMessage.includes('No new delta data available')
+            );
+            
+            if (hasRealFailures) return 'failed';
+            
+            // If any object is currently processing, mark as partial
             if (statuses.some(s => s === 'processing')) return 'partial';
-            if (statuses.some(s => s === 'ready')) return 'partial';
             
-            return 'inactive';
+            // If all objects are completed or ready (no new data), mark as completed
+            if (statuses.every(s => s === 'completed' || s === 'ready')) return 'completed';
+            
+            // Mixed states = partial
+            return 'partial';
         }
 
-        // Sample data for demo - using only real connection name
-        function getSampleFlowData() {
-            return [
-                {
-                    id: 'RF_S4GSS_Test',
-                    name: 'RF_S4GSS_Test',
-                    sourceConnection: 'Source_S4HANA_Dev_RSD',
-                    targetConnection: 'Target_Azure_SA_Dev001',
-                    status: 'completed',
-                    objects: [
-                        {
-                            name: 'T001',
-                            status: 'completed',
-                            recordsToday: 2,
-                            recordsTotal: 274,
-                            lastUpdated: new Date('2025-01-15T07:47:37'),
-                            nextCheck: '2025-01-16T08:00:00Z',
-                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
-                            loadType: 'REPLICATE',
-                            priority: 50
-                        },
-                        {
-                            name: 'T001L',
-                            status: 'completed',
-                            recordsToday: 15,
-                            recordsTotal: 5342,
-                            lastUpdated: new Date('2025-01-15T08:58:55'),
-                            nextCheck: '2025-01-16T08:00:00Z',
-                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
-                            loadType: 'REPLICATE',
-                            priority: 50
-                        },
-                        {
-                            name: 'T001K',
-                            status: 'completed',
-                            recordsToday: 5,
-                            recordsTotal: 694,
-                            lastUpdated: new Date('2025-01-15T08:58:48'),
-                            nextCheck: '2025-01-16T08:00:00Z',
-                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
-                            loadType: 'REPLICATE',
-                            priority: 50
-                        },
-                        {
-                            name: 'T001I',
-                            status: 'completed',
-                            recordsToday: 0,
-                            recordsTotal: 408,
-                            lastUpdated: new Date('2025-01-14T08:58:28'),
-                            nextCheck: '2025-01-16T08:00:00Z',
-                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
-                            loadType: 'REPLICATE',
-                            priority: 50
-                        }
-                    ]
-                },
-                {
-                    id: 'RF_Finance_Test',
-                    name: 'RF_Finance_Test',
-                    sourceConnection: 'Source_S4HANA_Dev_RSD',
-                    targetConnection: 'Target_Azure_SA_Dev001',
-                    status: 'partial',
-                    objects: [
-                        {
-                            name: 'BKPF',
-                            status: 'completed',
-                            recordsToday: 120,
-                            recordsTotal: 1250,
-                            lastUpdated: new Date('2025-01-15T06:30:15'),
-                            nextCheck: '2025-01-16T06:30:00Z',
-                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 06:30:00 UTC.',
-                            loadType: 'REPLICATE',
-                            priority: 10
-                        },
-                        {
-                            name: 'BSEG',
-                            status: 'processing',
-                            recordsToday: 0,
-                            recordsTotal: 850,
-                            lastUpdated: new Date('2025-01-15T09:15:30'),
-                            nextCheck: '',
-                            statusMessage: 'Transferring delta load. Records being processed.',
-                            loadType: 'REPLICATE',
-                            priority: 10
-                        }
-                    ]
-                },
-                {
-                    id: 'RF_Materials_Test',
-                    name: 'RF_Materials_Test',
-                    sourceConnection: 'Source_S4HANA_Dev_RSD',
-                    targetConnection: 'Target_Azure_SA_Dev001',
-                    status: 'failed',
-                    objects: [
-                        {
-                            name: 'MARA',
-                            status: 'failed',
-                            recordsToday: 0,
-                            recordsTotal: 1200,
-                            lastUpdated: new Date('2025-01-14T18:30:20'),
-                            nextCheck: '',
-                            statusMessage: 'Connection timeout. Retrying in 5 minutes.',
-                            loadType: 'REPLICATE',
-                            priority: 5
-                        }
-                    ]
-                }
-            ];
-        }
+        // Remove sample data function - no longer needed
+        // Dashboard now only loads real data from JSON files
 
         // Parse next check time from status message
         function parseNextCheckTime(statusMessage) {
