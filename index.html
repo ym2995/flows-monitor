@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP Flows Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 2rem;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .date-picker {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            padding: 0.5rem 1rem;
+            color: white;
+            font-size: 0.9rem;
+        }
+
+        .date-picker input {
+            background: none;
+            border: none;
+            color: white;
+            outline: none;
+        }
+
+        .date-picker input::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+
+        /* Main Layout */
+        .main-layout {
+            display: flex;
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            gap: 2rem;
+            padding: 2rem;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 250px;
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            height: fit-content;
+            position: sticky;
+            top: 2rem;
+        }
+
+        .sidebar-section {
+            margin-bottom: 2rem;
+        }
+
+        .sidebar-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 0.75rem;
+            text-align: center;
+            border: 1px solid #e9ecef;
+        }
+
+        .stat-number {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #007bff;
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #666;
+            margin-top: 0.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-btn {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 0.6rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            text-align: left;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .filter-btn:hover {
+            background: #e9ecef;
+        }
+
+        .filter-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .filter-count {
+            background: rgba(108, 117, 125, 0.2);
+            color: #495057;
+            padding: 0.1rem 0.4rem;
+            border-radius: 8px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .filter-btn.active .filter-count {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .date-nav {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .date-nav-btn {
+            flex: 1;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 0.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .date-nav-btn:hover {
+            background: #e9ecef;
+        }
+
+        .date-nav-btn.today {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+        }
+
+        .status-bar {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-info {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .refresh-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #0056b3;
+        }
+
+        /* Flow Grid */
+        .flows-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .flow-card {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            height: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .flow-card:hover {
+            border-color: #007bff;
+            box-shadow: 0 2px 8px rgba(0,123,255,0.15);
+            transform: translateY(-1px);
+        }
+
+        .flow-card.selected {
+            border-color: #007bff;
+            background: #f8f9ff;
+        }
+
+        .flow-card::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 3px;
+            background: #dee2e6;
+            transition: background 0.2s;
+        }
+
+        .flow-card.status-completed::before { background: #28a745; }
+        .flow-card.status-partial::before { background: #ffc107; }
+        .flow-card.status-failed::before { background: #dc3545; }
+        .flow-card.status-inactive::before { background: #6c757d; }
+
+        .flow-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .flow-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            color: #666;
+        }
+
+        .flow-connection {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .status-badge {
+            padding: 0.1rem 0.4rem;
+            border-radius: 10px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-completed { background: #d4edda; color: #155724; }
+        .status-partial { background: #fff3cd; color: #856404; }
+        .status-failed { background: #f8d7da; color: #721c24; }
+        .status-inactive { background: #e2e3e5; color: #383d41; }
+
+        /* Details Panel */
+        .details-panel {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .details-panel.active {
+            display: block;
+        }
+
+        .details-header {
+            border-bottom: 1px solid #e9ecef;
+            padding-bottom: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .details-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.25rem;
+        }
+
+        .details-subtitle {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .objects-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .objects-table th {
+            background: #f8f9fa;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #495057;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .objects-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #f8f9fa;
+            font-size: 0.85rem;
+        }
+
+        .objects-table tr:hover {
+            background: #f8f9ff;
+        }
+
+        .object-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .object-status {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .object-completed { background: #d4edda; color: #155724; }
+        .object-ready { background: #fff3cd; color: #856404; }
+        .object-processing { background: #cce5ff; color: #004085; }
+        .object-failed { background: #f8d7da; color: #721c24; }
+
+        .record-count {
+            font-weight: 600;
+            color: #007bff;
+        }
+
+        .timestamp {
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .empty-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+
+        .empty-subtitle {
+            font-size: 0.9rem;
+        }
+
+        /* Loading State */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Error State */
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .main-layout {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .sidebar {
+                width: 100%;
+                position: static;
+            }
+
+            .flows-grid {
+                grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">📊 SAP Flows Monitor</div>
+            <div class="date-picker">
+                <label for="dateInput">📅</label>
+                <input type="date" id="dateInput" onchange="loadFlowsForDate()">
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="main-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Summary Stats -->
+            <div class="sidebar-section">
+                <div class="sidebar-title">Overview</div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalFlows">0</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="completedFlows">0</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="partialFlows">0</div>
+                        <div class="stat-label">Partial</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="issueFlows">0</div>
+                        <div class="stat-label">Issues</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Date Navigation -->
+            <div class="sidebar-section">
+                <div class="sidebar-title">Date Navigation</div>
+                <div class="date-nav">
+                    <button class="date-nav-btn" onclick="changeDate(-1)">← Prev</button>
+                    <button class="date-nav-btn today" onclick="goToToday()">Today</button>
+                    <button class="date-nav-btn" onclick="changeDate(1)">Next →</button>
+                </div>
+            </div>
+
+            <!-- Source Filter -->
+            <div class="sidebar-section">
+                <div class="sidebar-title">Source Systems</div>
+                <div class="filter-group" id="sourceFilters">
+                    <button class="filter-btn active" onclick="setSourceFilter('all')">
+                        All Sources
+                        <span class="filter-count" id="sourceAll">0</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Filter -->
+            <div class="sidebar-section">
+                <div class="sidebar-title">Status Filter</div>
+                <div class="filter-group">
+                    <button class="filter-btn active" onclick="setStatusFilter('all')">
+                        All Flows
+                        <span class="filter-count" id="statusAll">0</span>
+                    </button>
+                    <button class="filter-btn" onclick="setStatusFilter('completed')">
+                        Completed
+                        <span class="filter-count" id="statusCompleted">0</span>
+                    </button>
+                    <button class="filter-btn" onclick="setStatusFilter('issues')">
+                        Issues
+                        <span class="filter-count" id="statusIssues">0</span>
+                    </button>
+                    <button class="filter-btn" onclick="setStatusFilter('active')">
+                        Active Today
+                        <span class="filter-count" id="statusActive">0</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Status Bar -->
+            <div class="status-bar">
+                <div class="status-info" id="statusInfo">
+                    Loading flows data...
+                </div>
+                <button class="refresh-btn" onclick="refreshData()">
+                    🔄 Refresh
+                </button>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loadingState" class="loading">
+                <div class="spinner"></div>
+                <span style="margin-left: 1rem;">Loading flows...</span>
+            </div>
+
+            <!-- Error State -->
+            <div id="errorState" class="error-message" style="display: none;">
+                <strong>Error:</strong> <span id="errorMessage"></span>
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <div class="empty-icon">📂</div>
+                <div class="empty-title">No Flows Found</div>
+                <div class="empty-subtitle">No flow data available for the selected date</div>
+            </div>
+
+            <!-- Flows Grid -->
+            <div id="flowsGrid" class="flows-grid" style="display: none;"></div>
+
+            <!-- Details Panel -->
+            <div id="detailsPanel" class="details-panel">
+                <div class="details-header">
+                    <div class="details-title" id="detailsTitle">Flow Details</div>
+                    <div class="details-subtitle" id="detailsSubtitle">Object status for selected date</div>
+                </div>
+                
+                <table class="objects-table">
+                    <thead>
+                        <tr>
+                            <th>Object Name</th>
+                            <th>Status</th>
+                            <th>Records Today</th>
+                            <th>Records Total</th>
+                            <th>Last Updated</th>
+                            <th>Next Check</th>
+                        </tr>
+                    </thead>
+                    <tbody id="objectsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Application State
+        let appState = {
+            selectedDate: new Date().toISOString().split('T')[0],
+            flows: [],
+            selectedFlow: null,
+            currentSourceFilter: 'all',
+            currentStatusFilter: 'all',
+            isLoading: false
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('dateInput').value = appState.selectedDate;
+            loadFlowsForDate();
+        });
+
+        // Load flows for selected date
+        async function loadFlowsForDate() {
+            const dateInput = document.getElementById('dateInput');
+            appState.selectedDate = dateInput.value;
+            
+            showLoading(true);
+            hideError();
+            
+            try {
+                const flows = await fetchFlowsForDate(appState.selectedDate);
+                appState.flows = flows;
+                
+                if (flows.length === 0) {
+                    showEmptyState();
+                } else {
+                    displayFlows(flows);
+                    updateSidebar(flows);
+                    updateStatusInfo(flows);
+                }
+                
+            } catch (error) {
+                console.error('Error loading flows:', error);
+                showError('Failed to load flow data. Please check if files exist for the selected date.');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Fetch flows from data directory
+        async function fetchFlowsForDate(date) {
+            // For demo purposes, show sample data
+            return getSampleFlowData();
+        }
+
+        // Sample data for demo - using only real connection name
+        function getSampleFlowData() {
+            return [
+                {
+                    id: 'RF_S4GSS_Test',
+                    name: 'RF_S4GSS_Test',
+                    sourceConnection: 'Source_S4HANA_Dev_RSD',
+                    targetConnection: 'Target_Azure_SA_Dev001',
+                    status: 'completed',
+                    objects: [
+                        {
+                            name: 'T001',
+                            status: 'completed',
+                            recordsToday: 2,
+                            recordsTotal: 274,
+                            lastUpdated: new Date('2025-01-15T07:47:37'),
+                            nextCheck: '2025-01-16T08:00:00Z',
+                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
+                            loadType: 'REPLICATE',
+                            priority: 50
+                        },
+                        {
+                            name: 'T001L',
+                            status: 'completed',
+                            recordsToday: 15,
+                            recordsTotal: 5342,
+                            lastUpdated: new Date('2025-01-15T08:58:55'),
+                            nextCheck: '2025-01-16T08:00:00Z',
+                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
+                            loadType: 'REPLICATE',
+                            priority: 50
+                        },
+                        {
+                            name: 'T001K',
+                            status: 'completed',
+                            recordsToday: 5,
+                            recordsTotal: 694,
+                            lastUpdated: new Date('2025-01-15T08:58:48'),
+                            nextCheck: '2025-01-16T08:00:00Z',
+                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
+                            loadType: 'REPLICATE',
+                            priority: 50
+                        },
+                        {
+                            name: 'T001I',
+                            status: 'completed',
+                            recordsToday: 0,
+                            recordsTotal: 408,
+                            lastUpdated: new Date('2025-01-14T08:58:28'),
+                            nextCheck: '2025-01-16T08:00:00Z',
+                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 08:00:00 UTC.',
+                            loadType: 'REPLICATE',
+                            priority: 50
+                        }
+                    ]
+                },
+                {
+                    id: 'RF_Finance_Test',
+                    name: 'RF_Finance_Test',
+                    sourceConnection: 'Source_S4HANA_Dev_RSD',
+                    targetConnection: 'Target_Azure_SA_Dev001',
+                    status: 'partial',
+                    objects: [
+                        {
+                            name: 'BKPF',
+                            status: 'completed',
+                            recordsToday: 120,
+                            recordsTotal: 1250,
+                            lastUpdated: new Date('2025-01-15T06:30:15'),
+                            nextCheck: '2025-01-16T06:30:00Z',
+                            statusMessage: 'No new delta data available. Next delta load will be after 16-Jan-2025 06:30:00 UTC.',
+                            loadType: 'REPLICATE',
+                            priority: 10
+                        },
+                        {
+                            name: 'BSEG',
+                            status: 'processing',
+                            recordsToday: 0,
+                            recordsTotal: 850,
+                            lastUpdated: new Date('2025-01-15T09:15:30'),
+                            nextCheck: '',
+                            statusMessage: 'Transferring delta load. Records being processed.',
+                            loadType: 'REPLICATE',
+                            priority: 10
+                        }
+                    ]
+                },
+                {
+                    id: 'RF_Materials_Test',
+                    name: 'RF_Materials_Test',
+                    sourceConnection: 'Source_S4HANA_Dev_RSD',
+                    targetConnection: 'Target_Azure_SA_Dev001',
+                    status: 'failed',
+                    objects: [
+                        {
+                            name: 'MARA',
+                            status: 'failed',
+                            recordsToday: 0,
+                            recordsTotal: 1200,
+                            lastUpdated: new Date('2025-01-14T18:30:20'),
+                            nextCheck: '',
+                            statusMessage: 'Connection timeout. Retrying in 5 minutes.',
+                            loadType: 'REPLICATE',
+                            priority: 5
+                        }
+                    ]
+                }
+            ];
+        }
+
+        // Parse next check time from status message
+        function parseNextCheckTime(statusMessage) {
+            if (!statusMessage) return '';
+            
+            // Match pattern: "after 16-Jan-2025 08:00:00 UTC"
+            const match = statusMessage.match(/after\s+(\d{1,2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2})\s+UTC/);
+            if (match) {
+                try {
+                    // Convert "16-Jan-2025 08:00:00" to proper date
+                    const dateStr = match[1].replace(/-/g, ' ');
+                    const date = new Date(dateStr + ' UTC');
+                    return date.toLocaleString();
+                } catch (e) {
+                    return match[1]; // Return original if parsing fails
+                }
+            }
+            return '';
+        }
+
+        // Calculate records for selected date only
+        function calculateRecordsForDate(rawPartitionData, targetDate) {
+            let recordsToday = 0;
+            let recordsTotal = 0;
+            
+            if (rawPartitionData && rawPartitionData.partitions) {
+                Object.values(rawPartitionData.partitions).forEach(partition => {
+                    if (partition.partitionMetrics) {
+                        const metrics = partition.partitionMetrics;
+                        
+                        // Add to total
+                        if (metrics.targetRecordCount) {
+                            recordsTotal += metrics.targetRecordCount;
+                        }
+                        
+                        // Check if transferred on target date
+                        if (metrics.lastDataTransferredAt) {
+                            const transferDate = new Date(metrics.lastDataTransferredAt);
+                            if (transferDate.toISOString().split('T')[0] === targetDate) {
+                                recordsToday += metrics.targetRecordCount || 0;
+                            }
+                        }
+                    }
+                });
+            }
+            
+            return { recordsToday, recordsTotal };
+        }
+
+        // Update sidebar with stats and filters
+        function updateSidebar(flows) {
+            updateStats(flows);
+            updateSourceFilters(flows);
+            updateStatusFilters(flows);
+        }
+
+        // Update statistics
+        function updateStats(flows) {
+            const stats = {
+                total: flows.length,
+                completed: flows.filter(f => f.status === 'completed').length,
+                partial: flows.filter(f => f.status === 'partial').length,
+                issues: flows.filter(f => f.status === 'failed' || f.status === 'partial').length
+            };
+
+            document.getElementById('totalFlows').textContent = stats.total;
+            document.getElementById('completedFlows').textContent = stats.completed;
+            document.getElementById('partialFlows').textContent = stats.partial;
+            document.getElementById('issueFlows').textContent = stats.issues;
+        }
+
+        // Update source connection filters
+        function updateSourceFilters(flows) {
+            const sourceConnections = [...new Set(flows.map(f => f.sourceConnection))];
+            const sourceFilters = document.getElementById('sourceFilters');
+            
+            // Keep "All Sources" button and update count
+            document.getElementById('sourceAll').textContent = flows.length;
+            
+            // Remove existing source filters (except "All Sources")
+            const existingFilters = sourceFilters.querySelectorAll('.filter-btn:not(:first-child)');
+            existingFilters.forEach(btn => btn.remove());
+            
+            // Add source-specific filters
+            sourceConnections.forEach(source => {
+                const count = flows.filter(f => f.sourceConnection === source).length;
+                const btn = document.createElement('button');
+                btn.className = 'filter-btn';
+                btn.setAttribute('data-source', source);
+                btn.addEventListener('click', function() {
+                    setSourceFilter(source);
+                });
+                btn.innerHTML = `
+                    ${source}
+                    <span class="filter-count">${count}</span>
+                `;
+                sourceFilters.appendChild(btn);
+            });
+        }
+
+        // Update status filters
+        function updateStatusFilters(flows) {
+            const counts = {
+                all: flows.length,
+                completed: flows.filter(f => f.status === 'completed').length,
+                issues: flows.filter(f => f.status === 'failed' || f.status === 'partial').length,
+                active: flows.filter(f => f.status !== 'inactive').length
+            };
+
+            document.getElementById('statusAll').textContent = counts.all;
+            document.getElementById('statusCompleted').textContent = counts.completed;
+            document.getElementById('statusIssues').textContent = counts.issues;
+            document.getElementById('statusActive').textContent = counts.active;
+        }
+
+        // Display flows with current filters applied
+        function displayFlows(flows) {
+            const filteredFlows = applyFilters(flows);
+            const grid = document.getElementById('flowsGrid');
+            
+            if (filteredFlows.length === 0) {
+                showEmptyState();
+                return;
+            }
+            
+            let html = '';
+            
+            filteredFlows.forEach(flow => {
+                html += `
+                    <div class="flow-card status-${flow.status}" onclick="selectFlow('${flow.id}')">
+                        <div class="flow-name" title="${flow.name}">${flow.name}</div>
+                        <div class="flow-meta">
+                            <div class="flow-connection" title="${flow.sourceConnection} → ${flow.targetConnection}">
+                                ${flow.sourceConnection} → ${flow.targetConnection}
+                            </div>
+                            <div class="status-badge status-${flow.status}">
+                                ${flow.status}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            grid.innerHTML = html;
+            grid.style.display = 'grid';
+            
+            hideEmptyState();
+        }
+
+        // Apply current filters
+        function applyFilters(flows) {
+            let filtered = flows;
+            
+            // Apply source filter
+            if (appState.currentSourceFilter !== 'all') {
+                filtered = filtered.filter(f => f.sourceConnection === appState.currentSourceFilter);
+            }
+            
+            // Apply status filter
+            if (appState.currentStatusFilter === 'completed') {
+                filtered = filtered.filter(f => f.status === 'completed');
+            } else if (appState.currentStatusFilter === 'issues') {
+                filtered = filtered.filter(f => f.status === 'failed' || f.status === 'partial');
+            } else if (appState.currentStatusFilter === 'active') {
+                filtered = filtered.filter(f => f.status !== 'inactive');
+            }
+            
+            return filtered;
+        }
+
+        // Filter event handlers
+        function setSourceFilter(source) {
+            appState.currentSourceFilter = source;
+            
+            // Update UI - remove active class from all source filter buttons
+            document.querySelectorAll('#sourceFilters .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Add active class to clicked button
+            const clickedBtn = document.querySelector(`#sourceFilters .filter-btn[data-source="${source}"]`) || 
+                              document.querySelector('#sourceFilters .filter-btn:first-child');
+            if (clickedBtn) {
+                clickedBtn.classList.add('active');
+            }
+            
+            displayFlows(appState.flows);
+        }
+
+        function setStatusFilter(status) {
+            appState.currentStatusFilter = status;
+            
+            // Update UI - remove active from all status buttons
+            document.querySelectorAll('.sidebar-section:last-child .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Add active to clicked button using event target
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            
+            displayFlows(appState.flows);
+        }
+
+        // Select a flow and show details
+        function selectFlow(flowId) {
+            // Remove previous selection
+            document.querySelectorAll('.flow-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
+            // Add selection to clicked card
+            if (event && event.target) {
+                const card = event.target.closest('.flow-card');
+                if (card) {
+                    card.classList.add('selected');
+                }
+            }
+            
+            // Find and display flow details
+            const flow = appState.flows.find(f => f.id === flowId);
+            if (flow) {
+                appState.selectedFlow = flow;
+                displayFlowDetails(flow);
+            }
+        }
+
+        // Display flow details
+        function displayFlowDetails(flow) {
+            const panel = document.getElementById('detailsPanel');
+            const title = document.getElementById('detailsTitle');
+            const subtitle = document.getElementById('detailsSubtitle');
+            const tbody = document.getElementById('objectsTableBody');
+            
+            title.textContent = flow.name;
+            subtitle.textContent = `${flow.objects.length} objects • ${flow.sourceConnection} → ${flow.targetConnection}`;
+            
+            let html = '';
+            flow.objects.forEach(obj => {
+                const nextCheckFormatted = parseNextCheckTime(obj.statusMessage) || obj.nextCheck || 'N/A';
+                
+                html += `
+                    <tr>
+                        <td>
+                            <div class="object-name">${obj.name}</div>
+                            <div style="font-size: 0.75rem; color: #666;">${obj.loadType} • Priority ${obj.priority}</div>
+                        </td>
+                        <td>
+                            <span class="object-status object-${obj.status}">${obj.status}</span>
+                        </td>
+                        <td>
+                            <span class="record-count">${obj.recordsToday.toLocaleString()}</span>
+                            ${obj.recordsToday > 0 ? '<div style="font-size: 0.7rem; color: #28a745;">✅ Processed today</div>' : '<div style="font-size: 0.7rem; color: #6c757d;">No records today</div>'}
+                        </td>
+                        <td>
+                            <span class="record-count">${obj.recordsTotal.toLocaleString()}</span>
+                            <div style="font-size: 0.7rem; color: #6c757d;">Total since start</div>
+                        </td>
+                        <td>
+                            <span class="timestamp">${obj.lastUpdated ? obj.lastUpdated.toLocaleString() : 'N/A'}</span>
+                        </td>
+                        <td>
+                            <span class="timestamp">${nextCheckFormatted}</span>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+            panel.classList.add('active');
+        }
+
+        // Update status info
+        function updateStatusInfo(flows) {
+            const statusInfo = document.getElementById('statusInfo');
+            const date = new Date(appState.selectedDate).toLocaleDateString();
+            const completed = flows.filter(f => f.status === 'completed').length;
+            
+            statusInfo.textContent = `${flows.length} flows found for ${date} • ${completed} completed`;
+        }
+
+        // Date navigation
+        function changeDate(days) {
+            const currentDate = new Date(appState.selectedDate);
+            currentDate.setDate(currentDate.getDate() + days);
+            appState.selectedDate = currentDate.toISOString().split('T')[0];
+            document.getElementById('dateInput').value = appState.selectedDate;
+            loadFlowsForDate();
+        }
+
+        function goToToday() {
+            appState.selectedDate = new Date().toISOString().split('T')[0];
+            document.getElementById('dateInput').value = appState.selectedDate;
+            loadFlowsForDate();
+        }
+
+        // Refresh data
+        function refreshData() {
+            loadFlowsForDate();
+        }
+
+        // UI State Management
+        function showLoading(show) {
+            const loading = document.getElementById('loadingState');
+            const grid = document.getElementById('flowsGrid');
+            const details = document.getElementById('detailsPanel');
+            
+            if (show) {
+                loading.style.display = 'flex';
+                grid.style.display = 'none';
+                details.classList.remove('active');
+            } else {
+                loading.style.display = 'none';
+            }
+        }
+
+        function showEmptyState() {
+            document.getElementById('emptyState').style.display = 'block';
+            document.getElementById('flowsGrid').style.display = 'none';
+            document.getElementById('detailsPanel').classList.remove('active');
+        }
+
+        function hideEmptyState() {
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
+        function showError(message) {
+            const errorState = document.getElementById('errorState');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            errorMessage.textContent = message;
+            errorState.style.display = 'block';
+            
+            document.getElementById('flowsGrid').style.display = 'none';
+            document.getElementById('detailsPanel').classList.remove('active');
+        }
+
+        function hideError() {
+            document.getElementById('errorState').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
