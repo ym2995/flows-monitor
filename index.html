@@ -864,71 +864,119 @@
             }
         }
 
-        // Discover all JSON files in the flows directory
+        // Discover all JSON files in the flows directory - COMPREHENSIVE DISCOVERY
         async function discoverFlowFiles() {
             try {
-                // Since we can't list directory contents directly in browser,
-                // we'll try common flow naming patterns and existing files
-                const commonFlowPatterns = [
-                    'RF_S4GSS_Test.json',
-                    'RF_Finance_Test.json', 
-                    'RF_Materials_Test.json',
-                    'RF_Sales_Test.json',
-                    'RF_Inventory_Test.json',
-                    'RF_Purchasing_Test.json',
-                    'RF_HR_Test.json',
-                    'RF_Production_Test.json',
-                    'RF_Quality_Test.json',
-                    'RF_Logistics_Test.json',
-                    'RF_CRM_Test.json',
-                    'RF_Analytics_Test.json'
+                console.log('🔍 Discovering all JSON files in ./data/flows/...');
+                
+                // Since browsers can't list directory contents directly,
+                // we'll use a comprehensive approach to find ANY *.json files
+                const potentialFiles = [];
+                
+                // Generate a comprehensive list of possible file names
+                // Common prefixes
+                const prefixes = ['RF_', 'Flow_', 'Replication_', 'Data_', 'SAP_', 'Delta_', 'ETL_', ''];
+                
+                // Common middle parts  
+                const middleParts = [
+                    'S4GSS', 'Finance', 'Materials', 'Sales', 'Inventory', 'Purchasing', 'HR',
+                    'Production', 'Quality', 'Logistics', 'CRM', 'Analytics', 'BW', 'HANA',
+                    'RSD', 'ODP', 'Test', 'Prod', 'Dev', 'UAT', 'QAS', 'Main', 'Core',
+                    'Master', 'Transaction', 'Config', 'Setup', 'Demo', 'Sample'
                 ];
                 
-                const existingFiles = [];
+                // Common suffixes
+                const suffixes = ['', '_Test', '_Prod', '_Dev', '_Main', '_Demo', '_Sample', '_Flow', '_Data'];
                 
-                // Test each potential file
-                for (const fileName of commonFlowPatterns) {
+                // Generate combinations
+                for (const prefix of prefixes) {
+                    for (const middle of middleParts) {
+                        for (const suffix of suffixes) {
+                            const fileName = `${prefix}${middle}${suffix}.json`;
+                            if (fileName !== '.json') { // Avoid empty names
+                                potentialFiles.push(fileName);
+                            }
+                        }
+                    }
+                }
+                
+                // Also add some direct patterns you mentioned
+                potentialFiles.push(
+                    'RF_RSD_ODP_Test.json',
+                    'RF_S4GSS_Test.json',
+                    'RF_Finance_Test.json',
+                    'RF_Materials_Test.json'
+                );
+                
+                // Add numbered variations
+                for (let i = 1; i <= 50; i++) {
+                    potentialFiles.push(`Flow_${i}.json`);
+                    potentialFiles.push(`RF_${i}.json`);
+                    potentialFiles.push(`Test_${i}.json`);
+                    potentialFiles.push(`Data_${i}.json`);
+                }
+                
+                // Remove duplicates
+                const uniqueFiles = [...new Set(potentialFiles)];
+                console.log(`🔍 Testing ${uniqueFiles.length} potential file patterns...`);
+                
+                const existingFiles = [];
+                let testCount = 0;
+                
+                // Test each potential file in batches to avoid overwhelming the browser
+                for (const fileName of uniqueFiles) {
                     try {
-                        const testResponse = await fetch(`./data/flows/${fileName}`, { method: 'HEAD' });
+                        const testResponse = await fetch(`./data/flows/${fileName}`, { 
+                            method: 'HEAD',
+                            cache: 'no-cache'
+                        });
+                        
                         if (testResponse.ok) {
                             existingFiles.push(fileName);
-                            console.log(`📁 Discovered file: ${fileName}`);
+                            console.log(`📁 ✅ Discovered file: ${fileName}`);
                         }
+                        
+                        testCount++;
+                        
+                        // Log progress every 100 tests
+                        if (testCount % 100 === 0) {
+                            console.log(`🔍 Tested ${testCount}/${uniqueFiles.length} files, found ${existingFiles.length} so far...`);
+                        }
+                        
                     } catch (e) {
-                        // File doesn't exist, continue
+                        // File doesn't exist or can't be accessed, continue silently
                     }
                 }
                 
-                // Also try to discover any RF_*.json files by trying variations
-                const additionalPatterns = [];
-                for (let i = 1; i <= 20; i++) {
-                    additionalPatterns.push(`RF_Flow_${i}.json`);
-                    additionalPatterns.push(`RF_Test_${i}.json`);
-                }
+                console.log(`📂 File discovery complete! Found ${existingFiles.length} JSON files:`);
+                existingFiles.forEach(file => console.log(`   📄 ${file}`));
                 
-                for (const fileName of additionalPatterns) {
-                    try {
-                        const testResponse = await fetch(`./data/flows/${fileName}`, { method: 'HEAD' });
-                        if (testResponse.ok && !existingFiles.includes(fileName)) {
-                            existingFiles.push(fileName);
-                            console.log(`📁 Discovered additional file: ${fileName}`);
-                        }
-                    } catch (e) {
-                        // File doesn't exist, continue
-                    }
-                }
-                
-                console.log(`📂 Total files discovered: ${existingFiles.length}`);
                 return existingFiles;
                 
             } catch (error) {
-                console.error('Error discovering files:', error);
-                // Fallback to basic patterns if discovery fails
-                return [
+                console.error('❌ Error during file discovery:', error);
+                // Fallback to basic test files
+                console.log('🔄 Falling back to basic file discovery...');
+                
+                const basicFiles = [
                     'RF_S4GSS_Test.json',
-                    'RF_Finance_Test.json', 
-                    'RF_Materials_Test.json'
+                    'RF_RSD_ODP_Test.json',
+                    'RF_Finance_Test.json'
                 ];
+                
+                const foundBasicFiles = [];
+                for (const fileName of basicFiles) {
+                    try {
+                        const testResponse = await fetch(`./data/flows/${fileName}`, { method: 'HEAD' });
+                        if (testResponse.ok) {
+                            foundBasicFiles.push(fileName);
+                        }
+                    } catch (e) {
+                        // File doesn't exist
+                    }
+                }
+                
+                return foundBasicFiles;
             }
         }
 
