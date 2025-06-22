@@ -940,18 +940,19 @@
             }
         }
 
-        // Parse object from replication task and DI details
+        // Parse object from replication task and DI details - FIXED STATUS LOGIC
         function parseObjectFromTask(task, diTask, selectedDate) {
             const objectName = task.sourceObject.name;
             const loadType = task.loadType || 'REPLICATE';
             const priority = task.priority || 50;
             
-            let status = 'ready'; // Default to ready instead of inactive
+            let status = 'inactive';
             let recordsToday = 0;
             let recordsTotal = 0;
             let lastUpdated = null;
             let nextCheck = '';
             let statusMessage = '';
+            let hasDataTransferOnDate = false;
             
             if (diTask && diTask.status && diTask.status.details) {
                 const details = diTask.status.details;
@@ -959,66 +960,103 @@
                 // Parse partition information
                 if (details.partitions) {
                     Object.values(details.partitions).forEach(partition => {
-                        if (partition.partitionMetrics) {
-                            const metrics = partition.partitionMetrics;
-                            
-                            // Add to total records
-                            if (metrics.targetRecordCount) {
-                                recordsTotal += metrics.targetRecordCount;
-                            }
-                            
-                            // Check if data was transferred on selected date
-                            if (metrics.lastDataTransferredAt) {
-                                const transferDate = new Date(metrics.lastDataTransferredAt);
-                                lastUpdated = transferDate;
+                        
+                        // Handle INITIAL load partitions
+                        if (partition.transferMode === 'INITIAL') {
+                            if (partition.partitionMetrics) {
+                                const metrics = partition.partitionMetrics;
                                 
-                                if (transferDate.toISOString().split('T')[0] === selectedDate) {
-                                    recordsToday += metrics.targetRecordCount || 0;
+                                // Add to total records from initial load
+                                if (metrics.targetRecordCount) {
+                                    recordsTotal += metrics.targetRecordCount;
+                                }
+                                
+                                // Check if initial load completed on selected date
+                                if (metrics.completedAt) {
+                                    const completedDate = new Date(metrics.completedAt);
+                                    if (completedDate.toISOString().split('T')[0] === selectedDate) {
+                                        recordsToday += metrics.targetRecordCount || 0;
+                                        hasDataTransferOnDate = true;
+                                        lastUpdated = completedDate;
+                                    }
                                 }
                             }
                         }
                         
-                        // Get status information from partition
-                        if (partition.statusInfo) {
-                            statusMessage = partition.statusInfo;
-                            
-                            if (partition.statusInfo.includes('No new delta data available')) {
-                                status = 'completed'; // Delta ready means completed
+                        // Handle DELTA load partitions - This is the key logic
+                        else if (partition.transferMode === 'DELTA') {
+                            if (partition.partitionMetrics) {
+                                const metrics = partition.partitionMetrics;
                                 
-                                // Extract next check time
-                                const nextCheckMatch = partition.statusInfo.match(/after (.+?)\./);
+                                // Add to total records from delta loads
+                                if (metrics.targetRecordCount) {
+                                    recordsTotal += metrics.targetRecordCount;
+                                }
+                                
+                                // Check if delta data was transferred on selected date
+                                if (metrics.lastDataTransferredAt) {
+                                    const transferDate = new Date(metrics.lastDataTransferredAt);
+                                    lastUpdated = transferDate;
+                                    
+                                    if (transferDate.toISOString().split('T')[0] === selectedDate) {
+                                        recordsToday += metrics.targetRecordCount || 0;
+                                        hasDataTransferOnDate = true;
+                                    }
+                                }
+                            }
+                            
+                            // Get status information from delta partition
+                            if (partition.statusInfo) {
+                                statusMessage = partition.statusInfo;
+                                
+                                // Parse next check time
+                                const nextCheckMatch = partition.statusInfo.match(/after\s+(\d{1,2}-\w{3}-\d{4})\s+\d{2}:\d{2}:\d{2}\s+UTC/);
                                 if (nextCheckMatch) {
                                     nextCheck = nextCheckMatch[1];
                                 }
-                            } else if (partition.statusInfo.includes('Transferring') || 
-                                      partition.statusInfo.includes('Processing')) {
-                                status = 'processing';
-                            } else if (partition.statusInfo.includes('Complete')) {
-                                status = 'completed';
                             }
-                        }
-                        
-                        // Check partition status directly
-                        if (partition.status) {
-                            if (partition.status === 'Complete') {
-                                status = 'completed';
-                            } else if (partition.status === 'Transferring') {
-                                status = 'processing';
-                            } else if (partition.status === 'Failed' || partition.status === 'Error') {
-                                status = 'failed';
-                            }
-                        }
-                        
-                        // Only mark as failed if there are actual errors, not just no recent data
-                        if (partition.retryInfo && partition.retryInfo.retryCount > 0 && 
-                            partition.retryInfo.lastError) {
-                            status = 'failed';
                         }
                     });
                 }
             }
             
-            console.log(`Object ${objectName}: status=${status}, recordsToday=${recordsToday}, recordsTotal=${recordsTotal}`);
+            // Determine status based on REPLICATE business logic
+            if (loadType === 'REPLICATE') {
+                if (hasDataTransferOnDate) {
+                    // Data was transferred on the selected date
+                    status = 'completed';
+                    statusMessage = `Delta Complete for ${selectedDate} (${recordsToday} records)`;
+                } else if (nextCheck) {
+                    // Parse next check date
+                    const nextCheckDate = parseNextCheckDate(nextCheck);
+                    const selectedDateObj = new Date(selectedDate);
+                    
+                    if (nextCheckDate && nextCheckDate > selectedDateObj) {
+                        // Next check is in the future, delta is complete for now
+                        status = 'ready';
+                        statusMessage = `No New Data for ${selectedDate} (Next check: ${nextCheck})`;
+                    } else {
+                        // Awaiting delta
+                        status = 'processing';
+                        statusMessage = `Awaiting Delta for ${selectedDate}`;
+                    }
+                } else {
+                    // No clear status information
+                    status = 'inactive';
+                    statusMessage = 'Status unknown';
+                }
+            } else {
+                // Handle INITIAL load type
+                if (hasDataTransferOnDate) {
+                    status = 'completed';
+                    statusMessage = `Full Load Complete for ${selectedDate} (${recordsToday} records)`;
+                } else {
+                    status = 'inactive';
+                    statusMessage = `No Full Load on ${selectedDate}`;
+                }
+            }
+            
+            console.log(`Object ${objectName}: status=${status}, recordsToday=${recordsToday}, recordsTotal=${recordsTotal}, hasDataTransferOnDate=${hasDataTransferOnDate}`);
             
             return {
                 name: objectName,
@@ -1033,30 +1071,45 @@
             };
         }
 
-        // Determine overall flow status from objects - FIXED LOGIC
+        // Helper function to parse next check date
+        function parseNextCheckDate(nextCheckStr) {
+            try {
+                // Convert "21-Jun-2025" to proper date
+                const dateStr = nextCheckStr.replace(/-/g, ' ');
+                return new Date(dateStr);
+            } catch (e) {
+                console.warn('Could not parse next check date:', nextCheckStr);
+                return null;
+            }
+        }
+
+        // Determine overall flow status from objects - IMPROVED LOGIC
         function determineFlowStatus(objects) {
             if (objects.length === 0) return 'inactive';
             
             const statuses = objects.map(obj => obj.status);
             console.log(`Flow statuses: ${statuses.join(', ')}`);
             
-            // If any object has failed with actual errors, mark flow as failed
-            const hasRealFailures = objects.some(obj => 
-                obj.status === 'failed' && 
-                obj.statusMessage && 
-                !obj.statusMessage.includes('No new delta data available')
-            );
+            // Count different status types
+            const completedCount = statuses.filter(s => s === 'completed').length;
+            const processingCount = statuses.filter(s => s === 'processing').length;
+            const readyCount = statuses.filter(s => s === 'ready').length;
+            const failedCount = statuses.filter(s => s === 'failed').length;
             
-            if (hasRealFailures) return 'failed';
-            
-            // If any object is currently processing, mark as partial
-            if (statuses.some(s => s === 'processing')) return 'partial';
-            
-            // If all objects are completed or ready (no new data), mark as completed
-            if (statuses.every(s => s === 'completed' || s === 'ready')) return 'completed';
-            
-            // Mixed states = partial
-            return 'partial';
+            // Determine overall flow status
+            if (failedCount > 0) {
+                return 'failed'; // Any failed object = failed flow
+            } else if (processingCount > 0) {
+                return 'partial'; // Any processing = partial flow
+            } else if (completedCount > 0 && readyCount > 0) {
+                return 'partial'; // Mixed completed and ready = partial
+            } else if (completedCount === objects.length) {
+                return 'completed'; // All completed = completed flow
+            } else if (readyCount === objects.length) {
+                return 'completed'; // All ready (no new data) = completed flow
+            } else {
+                return 'partial'; // Mixed states = partial
+            }
         }
 
         // Remove sample data function - no longer needed
@@ -1282,6 +1335,7 @@
                         </td>
                         <td>
                             <span class="object-status object-${obj.status}">${obj.status}</span>
+                            <div style="font-size: 0.75rem; color: #666; margin-top: 4px;">${obj.statusMessage}</div>
                         </td>
                         <td>
                             <span class="record-count">${obj.recordsToday.toLocaleString()}</span>
@@ -1295,7 +1349,7 @@
                             <span class="timestamp">${obj.lastUpdated ? obj.lastUpdated.toLocaleString() : 'N/A'}</span>
                         </td>
                         <td>
-                            <span class="timestamp">${nextCheckFormatted}</span>
+                            <span class="timestamp">${obj.nextCheck ? `Next: ${obj.nextCheck}` : 'N/A'}</span>
                         </td>
                     </tr>
                 `;
