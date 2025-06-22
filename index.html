@@ -871,7 +871,7 @@
                 
                 // Get the current repository info from the page URL
                 const currentUrl = window.location.href;
-                let repoPath = 'ym2995/flows-monitor';
+                let repoPath = '';
                 
                 // Try to detect GitHub Pages URL pattern
                 if (currentUrl.includes('github.io')) {
@@ -957,7 +957,7 @@
             }
         }
 
-        // Parse individual flow file based on the real JSON structure - WITH DATE ANALYSIS
+        // Parse individual flow file and check if flow should be visible on selected date
         function parseIndividualFlowFile(flowData, fileName, selectedDate) {
             try {
                 // Extract flow name from filename
@@ -978,6 +978,37 @@
                     return null;
                 }
                 
+                // Get flow start date from diDetails
+                let flowStartDate = null;
+                if (diDetails.replicationTasks && diDetails.replicationTasks.length > 0) {
+                    // Find the earliest initial activation date across all tasks
+                    diDetails.replicationTasks.forEach(task => {
+                        if (task.status?.details?.initialLoadMetrics?.firstActivatedAt) {
+                            const taskStartDate = new Date(task.status.details.initialLoadMetrics.firstActivatedAt);
+                            if (!flowStartDate || taskStartDate < flowStartDate) {
+                                flowStartDate = taskStartDate;
+                            }
+                        }
+                    });
+                }
+                
+                // If no start date found, use deployed date as fallback
+                if (!flowStartDate && dwcDetails.DEPLOYED_AT) {
+                    flowStartDate = new Date(dwcDetails.DEPLOYED_AT);
+                }
+                
+                // Check if flow should be visible on selected date
+                if (flowStartDate) {
+                    const flowStartDateStr = flowStartDate.toISOString().split('T')[0];
+                    const selectedDateStr = selectedDate;
+                    
+                    if (selectedDateStr < flowStartDateStr) {
+                        // Flow hasn't started yet on this date - don't show it
+                        console.log(`🚫 Flow ${flowName} not visible on ${selectedDate} (starts: ${flowStartDateStr})`);
+                        return null;
+                    }
+                }
+                
                 const sourceConnection = replicationFlow.sourceSystem?.connectionName || 'Unknown Source';
                 const targetConnection = replicationFlow.targetSystem?.connectionName || 'Unknown Target';
                 const replicationTasks = replicationFlow.replicationTasks || [];
@@ -995,12 +1026,24 @@
                     
                     const parsedObject = parseObjectFromTask(task, diTask, selectedDate);
                     if (parsedObject) {
-                        objects.push(parsedObject);
+                        // Only include objects that should be visible on this date
+                        if (parsedObject.status !== 'inactive' || 
+                            (flowStartDate && selectedDate >= flowStartDate.toISOString().split('T')[0])) {
+                            objects.push(parsedObject);
+                        }
                     }
                 });
                 
+                // If no objects are relevant for this date, don't show the flow
+                if (objects.length === 0) {
+                    console.log(`🚫 Flow ${flowName} has no relevant objects on ${selectedDate}`);
+                    return null;
+                }
+                
                 // Determine overall flow status for the selected date
                 const flowStatus = determineFlowStatus(objects);
+                
+                console.log(`✅ Flow ${flowName} visible on ${selectedDate} with ${objects.length} objects`);
                 
                 return {
                     id: flowName,
@@ -1010,7 +1053,8 @@
                     status: flowStatus,
                     objects: objects,
                     lastUpdated: new Date(dwcDetails.downloadTimeUtc || Date.now()),
-                    deployedAt: new Date(dwcDetails.DEPLOYED_AT || Date.now())
+                    deployedAt: new Date(dwcDetails.DEPLOYED_AT || Date.now()),
+                    flowStartDate: flowStartDate
                 };
                 
             } catch (error) {
@@ -1114,8 +1158,10 @@
             
             // Check if selected date is before flow started
             if (initialRunDateObj && selectedDateObj < initialRunDateObj) {
-                status = 'inactive';
+                // Flow hasn't started yet - this object should not be visible
+                status = 'not_visible';
                 statusMessage = `Flow not started yet (Started: ${initialRunDateObj.toDateString()})`;
+                return null; // Don't include this object in the results
             }
             // Check if selected date is the initial run date
             else if (initialRunDateObj && selectedDateObj.getTime() === initialRunDateObj.getTime()) {
