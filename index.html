@@ -940,7 +940,7 @@
             }
         }
 
-        // Parse object from replication task and DI details - FIXED STATUS LOGIC
+        // Parse object from replication task and DI details - FLOW HISTORY ANALYSIS
         function parseObjectFromTask(task, diTask, selectedDate) {
             const objectName = task.sourceObject.name;
             const loadType = task.loadType || 'REPLICATE';
@@ -952,12 +952,19 @@
             let lastUpdated = null;
             let nextCheck = '';
             let statusMessage = '';
+            let initialRunDate = null;
             let hasDataTransferOnDate = false;
+            let nextCheckTime = null;
             
             if (diTask && diTask.status && diTask.status.details) {
                 const details = diTask.status.details;
                 
-                // Parse partition information
+                // Get initial run date from initialLoadMetrics
+                if (details.initialLoadMetrics && details.initialLoadMetrics.firstActivatedAt) {
+                    initialRunDate = new Date(details.initialLoadMetrics.firstActivatedAt);
+                }
+                
+                // Parse partition information for complete history
                 if (details.partitions) {
                     Object.values(details.partitions).forEach(partition => {
                         
@@ -983,12 +990,12 @@
                             }
                         }
                         
-                        // Handle DELTA load partitions - This is the key logic
+                        // Handle DELTA load partitions - Complete history analysis
                         else if (partition.transferMode === 'DELTA') {
                             if (partition.partitionMetrics) {
                                 const metrics = partition.partitionMetrics;
                                 
-                                // Add to total records from delta loads
+                                // Add to total records from all delta loads
                                 if (metrics.targetRecordCount) {
                                     recordsTotal += metrics.targetRecordCount;
                                 }
@@ -1005,14 +1012,15 @@
                                 }
                             }
                             
-                            // Get status information from delta partition
+                            // Get current status information and next check time
                             if (partition.statusInfo) {
                                 statusMessage = partition.statusInfo;
                                 
-                                // Parse next check time
-                                const nextCheckMatch = partition.statusInfo.match(/after\s+(\d{1,2}-\w{3}-\d{4})\s+\d{2}:\d{2}:\d{2}\s+UTC/);
+                                // Parse next check time with full date and time
+                                const nextCheckMatch = partition.statusInfo.match(/after\s+(\d{1,2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2})\s+UTC/);
                                 if (nextCheckMatch) {
                                     nextCheck = nextCheckMatch[1];
+                                    nextCheckTime = parseNextCheckDateTime(nextCheckMatch[1]);
                                 }
                             }
                         }
@@ -1020,43 +1028,77 @@
                 }
             }
             
-            // Determine status based on REPLICATE business logic
-            if (loadType === 'REPLICATE') {
+            // Determine status based on flow history and selected date
+            const selectedDateObj = new Date(selectedDate);
+            const initialRunDateObj = initialRunDate ? new Date(initialRunDate.toISOString().split('T')[0]) : null;
+            const currentTime = new Date();
+            
+            // Check if selected date is before flow started
+            if (initialRunDateObj && selectedDateObj < initialRunDateObj) {
+                status = 'inactive';
+                statusMessage = `Flow not started yet (Started: ${initialRunDateObj.toDateString()})`;
+            }
+            // Check if selected date is the initial run date
+            else if (initialRunDateObj && selectedDateObj.getTime() === initialRunDateObj.getTime()) {
+                if (hasDataTransferOnDate) {
+                    status = 'completed';
+                    statusMessage = `Initial Load Complete on ${selectedDate} (${recordsToday} records)`;
+                } else {
+                    status = 'processing';
+                    statusMessage = `Initial Load in Progress on ${selectedDate}`;
+                }
+            }
+            // Handle delta dates (after initial run)
+            else if (loadType === 'REPLICATE' && initialRunDateObj && selectedDateObj > initialRunDateObj) {
+                
                 if (hasDataTransferOnDate) {
                     // Data was transferred on the selected date
                     status = 'completed';
-                    statusMessage = `Delta Complete for ${selectedDate} (${recordsToday} records)`;
-                } else if (nextCheck) {
-                    // Parse next check date
-                    const nextCheckDate = parseNextCheckDate(nextCheck);
-                    const selectedDateObj = new Date(selectedDate);
+                    statusMessage = `Delta Complete for ${selectedDate} (${recordsToday} records processed)`;
+                } else if (nextCheckTime) {
+                    // Analyze based on next check time and current time
+                    const nextCheckDate = nextCheckTime.toISOString().split('T')[0];
+                    const selectedDateStr = selectedDate;
                     
-                    if (nextCheckDate && nextCheckDate > selectedDateObj) {
-                        // Next check is in the future, delta is complete for now
-                        status = 'ready';
-                        statusMessage = `No New Data for ${selectedDate} (Next check: ${nextCheck})`;
+                    if (nextCheckDate === selectedDateStr) {
+                        // Next check is scheduled for selected date
+                        if (currentTime < nextCheckTime) {
+                            // Before scheduled time
+                            status = 'ready';
+                            statusMessage = `Delta scheduled for ${selectedDate} at ${nextCheckTime.toLocaleTimeString()} UTC`;
+                        } else {
+                            // After scheduled time but no data transferred
+                            status = 'completed';
+                            statusMessage = `No Delta Records for ${selectedDate} (checked at ${nextCheckTime.toLocaleTimeString()} UTC)`;
+                        }
+                    } else if (nextCheckDate > selectedDateStr) {
+                        // Next check is after selected date - delta was already processed or not needed
+                        status = 'completed';
+                        statusMessage = `No Delta Records for ${selectedDate} (Next check: ${nextCheck})`;
                     } else {
-                        // Awaiting delta
-                        status = 'processing';
-                        statusMessage = `Awaiting Delta for ${selectedDate}`;
+                        // Next check is before selected date - check if we're waiting
+                        if (selectedDateStr === currentTime.toISOString().split('T')[0]) {
+                            // Today - might be processing
+                            status = 'processing';
+                            statusMessage = `Processing Delta for ${selectedDate}`;
+                        } else {
+                            // Past date with no clear status
+                            status = 'completed';
+                            statusMessage = `No Delta Records for ${selectedDate}`;
+                        }
                     }
                 } else {
-                    // No clear status information
+                    // No clear status information for delta
                     status = 'inactive';
-                    statusMessage = 'Status unknown';
+                    statusMessage = `Delta status unknown for ${selectedDate}`;
                 }
             } else {
-                // Handle INITIAL load type
-                if (hasDataTransferOnDate) {
-                    status = 'completed';
-                    statusMessage = `Full Load Complete for ${selectedDate} (${recordsToday} records)`;
-                } else {
-                    status = 'inactive';
-                    statusMessage = `No Full Load on ${selectedDate}`;
-                }
+                // Handle other cases
+                status = 'inactive';
+                statusMessage = `No activity on ${selectedDate}`;
             }
             
-            console.log(`Object ${objectName}: status=${status}, recordsToday=${recordsToday}, recordsTotal=${recordsTotal}, hasDataTransferOnDate=${hasDataTransferOnDate}`);
+            console.log(`Object ${objectName} on ${selectedDate}: status=${status}, recordsToday=${recordsToday}, initialDate=${initialRunDateObj ? initialRunDateObj.toDateString() : 'unknown'}`);
             
             return {
                 name: objectName,
@@ -1067,18 +1109,19 @@
                 nextCheck: nextCheck,
                 statusMessage: statusMessage,
                 loadType: loadType,
-                priority: priority
+                priority: priority,
+                initialRunDate: initialRunDate
             };
         }
 
-        // Helper function to parse next check date
-        function parseNextCheckDate(nextCheckStr) {
+        // Helper function to parse next check date and time
+        function parseNextCheckDateTime(nextCheckStr) {
             try {
-                // Convert "21-Jun-2025" to proper date
+                // Convert "21-Jun-2025 20:27:42" to proper date
                 const dateStr = nextCheckStr.replace(/-/g, ' ');
-                return new Date(dateStr);
+                return new Date(dateStr + ' UTC');
             } catch (e) {
-                console.warn('Could not parse next check date:', nextCheckStr);
+                console.warn('Could not parse next check date time:', nextCheckStr);
                 return null;
             }
         }
