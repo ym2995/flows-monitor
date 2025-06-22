@@ -811,27 +811,24 @@
             }
         }
 
-        // Fetch flows from data directory - SINGLE FILES PER FLOW
+        // Fetch flows from data directory - DYNAMIC FILE DISCOVERY
         async function fetchFlowsForDate(date) {
             try {
                 console.log(`Loading flows for date: ${date}`);
-                console.log(`Looking for flow files in: ./data/flows/`);
+                console.log(`Discovering files in: ./data/flows/`);
                 
-                // Load individual flow files (not date-based folders)
-                const flowFiles = [
-                    'RF_S4GSS_Test.json',
-                    'RF_Finance_Test.json', 
-                    'RF_Materials_Test.json',
-                    'RF_Sales_Test.json',
-                    'RF_Inventory_Test.json',
-                    'RF_Purchasing_Test.json',
-                    'RF_HR_Test.json'
-                ];
+                // First, try to discover all JSON files in the directory
+                const discoveredFiles = await discoverFlowFiles();
+                
+                if (discoveredFiles.length === 0) {
+                    console.warn(`⚠️ No JSON files discovered in ./data/flows/`);
+                    return [];
+                }
                 
                 const flows = [];
                 let filesFound = 0;
                 
-                for (const fileName of flowFiles) {
+                for (const fileName of discoveredFiles) {
                     try {
                         const filePath = `./data/flows/${fileName}`;
                         console.log(`Attempting to load: ${filePath}`);
@@ -846,7 +843,7 @@
                                 filesFound++;
                             }
                         } else {
-                            console.log(`❌ File not found: ${fileName} (${fileResponse.status})`);
+                            console.log(`❌ File not accessible: ${fileName} (${fileResponse.status})`);
                         }
                     } catch (fileError) {
                         console.log(`❌ Error loading ${fileName}:`, fileError.message);
@@ -854,16 +851,84 @@
                 }
                 
                 if (flows.length > 0) {
-                    console.log(`🎉 Successfully loaded ${filesFound} real flow files and analyzed for ${date}`);
+                    console.log(`🎉 Successfully loaded ${filesFound} flow files and analyzed for ${date}`);
                     return flows;
                 }
                 
-                console.warn(`⚠️ No flow files found in ./data/flows/`);
-                return []; // Return empty array instead of demo data
+                console.warn(`⚠️ No valid flow files found`);
+                return [];
                 
             } catch (error) {
                 console.error('Error fetching flows:', error);
-                return []; // Return empty array on error
+                return [];
+            }
+        }
+
+        // Discover all JSON files in the flows directory
+        async function discoverFlowFiles() {
+            try {
+                // Since we can't list directory contents directly in browser,
+                // we'll try common flow naming patterns and existing files
+                const commonFlowPatterns = [
+                    'RF_S4GSS_Test.json',
+                    'RF_Finance_Test.json', 
+                    'RF_Materials_Test.json',
+                    'RF_Sales_Test.json',
+                    'RF_Inventory_Test.json',
+                    'RF_Purchasing_Test.json',
+                    'RF_HR_Test.json',
+                    'RF_Production_Test.json',
+                    'RF_Quality_Test.json',
+                    'RF_Logistics_Test.json',
+                    'RF_CRM_Test.json',
+                    'RF_Analytics_Test.json'
+                ];
+                
+                const existingFiles = [];
+                
+                // Test each potential file
+                for (const fileName of commonFlowPatterns) {
+                    try {
+                        const testResponse = await fetch(`./data/flows/${fileName}`, { method: 'HEAD' });
+                        if (testResponse.ok) {
+                            existingFiles.push(fileName);
+                            console.log(`📁 Discovered file: ${fileName}`);
+                        }
+                    } catch (e) {
+                        // File doesn't exist, continue
+                    }
+                }
+                
+                // Also try to discover any RF_*.json files by trying variations
+                const additionalPatterns = [];
+                for (let i = 1; i <= 20; i++) {
+                    additionalPatterns.push(`RF_Flow_${i}.json`);
+                    additionalPatterns.push(`RF_Test_${i}.json`);
+                }
+                
+                for (const fileName of additionalPatterns) {
+                    try {
+                        const testResponse = await fetch(`./data/flows/${fileName}`, { method: 'HEAD' });
+                        if (testResponse.ok && !existingFiles.includes(fileName)) {
+                            existingFiles.push(fileName);
+                            console.log(`📁 Discovered additional file: ${fileName}`);
+                        }
+                    } catch (e) {
+                        // File doesn't exist, continue
+                    }
+                }
+                
+                console.log(`📂 Total files discovered: ${existingFiles.length}`);
+                return existingFiles;
+                
+            } catch (error) {
+                console.error('Error discovering files:', error);
+                // Fallback to basic patterns if discovery fails
+                return [
+                    'RF_S4GSS_Test.json',
+                    'RF_Finance_Test.json', 
+                    'RF_Materials_Test.json'
+                ];
             }
         }
 
@@ -1199,19 +1264,25 @@
             document.getElementById('issueFlows').textContent = stats.issues;
         }
 
-        // Update source connection filters
+        // Update source connection filters - DYNAMIC FROM LOADED FLOWS
         function updateSourceFilters(flows) {
-            const sourceConnections = [...new Set(flows.map(f => f.sourceConnection))];
+            const sourceConnections = [...new Set(flows.map(f => f.sourceConnection))].filter(Boolean);
             const sourceFilters = document.getElementById('sourceFilters');
             
-            // Keep "All Sources" button and update count
-            document.getElementById('sourceAll').textContent = flows.length;
+            // Clear existing filters
+            sourceFilters.innerHTML = '';
             
-            // Remove existing source filters (except "All Sources")
-            const existingFilters = sourceFilters.querySelectorAll('.filter-btn:not(:first-child)');
-            existingFilters.forEach(btn => btn.remove());
+            // Add "All Sources" button
+            const allSourcesBtn = document.createElement('button');
+            allSourcesBtn.className = 'filter-btn active';
+            allSourcesBtn.onclick = () => setSourceFilter('all');
+            allSourcesBtn.innerHTML = `
+                All Sources
+                <span class="filter-count" id="sourceAll">${flows.length}</span>
+            `;
+            sourceFilters.appendChild(allSourcesBtn);
             
-            // Add source-specific filters
+            // Add source-specific filters dynamically
             sourceConnections.forEach(source => {
                 const count = flows.filter(f => f.sourceConnection === source).length;
                 const btn = document.createElement('button');
@@ -1226,6 +1297,8 @@
                 `;
                 sourceFilters.appendChild(btn);
             });
+            
+            console.log(`🔗 Dynamic source connections discovered: ${sourceConnections.join(', ')}`);
         }
 
         // Update status filters
